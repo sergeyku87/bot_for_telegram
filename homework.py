@@ -126,7 +126,6 @@ def parse_status(homework):
 
 def main():
     """Base logic Bot."""
-    global STATUS
     check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
