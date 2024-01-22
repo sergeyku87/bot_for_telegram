@@ -73,7 +73,7 @@ def timestamp(period=1):
 
     86400 volume second in one day.
     """
-    return int(time.time()) - 86400*period
+    return int(time.time()) - 86400 * period
 
 
 def get_api_answer(timestamp):
