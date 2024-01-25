@@ -53,9 +53,10 @@ def check_tokens():
         'TELEGRAM_TOKEN',
         'PRACTICUM_TOKEN',
     ]
+    glob_var = globals()
     try:
         if not all(list(map(
-            lambda var: globals().get(var) and globals().get(var) is not None,
+            lambda var: glob_var.get(var) and glob_var.get(var) is not None,
             required_variable
         )
         )
