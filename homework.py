@@ -89,7 +89,7 @@ def timestamp(period=1):
 
 def get_api_answer(timestamp):
     """Request to YandexPracticum Homework."""
-    logger.info('Send request to YaHomwork API')
+    logger.info(f'Send request to YaHomwork API. {time.ctime(timestamp)}')
     try:
         response = requests.get(
             url=ENDPOINT,
@@ -152,11 +152,10 @@ def parse_status(homework):
         status = homework['status']
         homework_name = homework['homework_name']
         verdict = HOMEWORK_VERDICTS[status]
+        change_status(status)
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     except KeyError as err:
         raise KeyError(err)
-    else:
-        change_status(status)
 
 
 def main():
