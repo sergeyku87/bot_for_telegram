@@ -70,7 +70,6 @@ def send_message(bot, message):
     try:
         logger.info(f'Bot send message: {message}')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        #change_message(message)
     except SendMessageError as err:
         logger.exception(err)
         sys.exit('Error in works Bot')
@@ -153,13 +152,11 @@ def parse_status(homework):
         status = homework['status']
         homework_name = homework['homework_name']
         verdict = HOMEWORK_VERDICTS[status]
-        #change_status(status)
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     except KeyError as err:
         raise KeyError(err)
     else:
         change_status(status)
-
 
 
 def main():
