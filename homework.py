@@ -15,8 +15,8 @@ from exceptions import (
 from work_with_db import (
     change_message,
     change_status,
-    check_message,
-    check_status
+    # check_message,
+    # check_status
 )
 
 load_dotenv()
