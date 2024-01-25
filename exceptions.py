@@ -1,5 +1,14 @@
-class NotExistVariable(Exception):
+class NotExistVariableError(Exception):
     pass
 
-class NotCorrectResponse(Exception):
+
+class NotCorrectResponseError(Exception):
+    pass
+
+
+class SendMessageError(Exception):
+    pass
+
+
+class StatusCodeError(Exception):
     pass
