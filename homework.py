@@ -167,10 +167,9 @@ def main():
             response = get_api_answer(timestamp())
             check_response(response)
             message = parse_status(last_homework(response))
-            if check_status(response):
-                send_message(bot, message)
-            if check_message(response):
-                send_message(bot, message)
+            # if check_status(response) or check_message(response):
+            #     send_message(bot, message)
+            send_message(bot, message)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logger.error(error)
