@@ -70,11 +70,12 @@ def send_message(bot, message):
     try:
         logger.info(f'Bot send message: {message}')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        change_message(message)
+        #change_message(message)
     except SendMessageError as err:
         logger.exception(err)
         sys.exit('Error in works Bot')
     else:
+        change_message(message)
         logger.debug('Successful send message')
 
 
@@ -113,7 +114,6 @@ def check_response(response):
         raise NotCorrectResponseError(
             'Not homework for the last 24 hours!'
         )
-
     if not isinstance(response['homeworks'], list):
         raise TypeError(
             f'Received: {type(response["homeworks"])}. Expected: "dict"'
@@ -153,10 +153,13 @@ def parse_status(homework):
         status = homework['status']
         homework_name = homework['homework_name']
         verdict = HOMEWORK_VERDICTS[status]
-        change_status(status)
+        #change_status(status)
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     except KeyError as err:
         raise KeyError(err)
+    else:
+        change_status(status)
+
 
 
 def main():
@@ -168,7 +171,7 @@ def main():
             response = get_api_answer(timestamp())
             check_response(response)
             message = parse_status(last_homework(response))
-            if check_message(message) or check_status(response):
+            if check_status(response) and check_message(response):
                 send_message(bot, message)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
