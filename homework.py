@@ -8,16 +8,9 @@ import telegram
 from dotenv import load_dotenv
 from exceptions import (
     NotCorrectResponseError,
-    NotExistVariableError,
-    SendMessageError,
     StatusCodeError
 )
-from work_with_db import (
-    change_message,
-    change_status,
-    # check_message,
-    # check_status
-)
+from telegram.error import TelegramError
 
 load_dotenv()
 
@@ -46,6 +39,30 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
+'''
+Я правильно понял что в функциях который вызываются в
+других функциях, мы пишем try/except для отлова предрологаемых
+исключений, например KeyError, а в функциях типа main, мы пишем
+except Exception уже для отлова того, что не учли или для того же
+самого KeyError? Или много except и с каждым конретно решаем что
+делать?
+Пробросить исключение это так:
+except KeyError:
+    raise KeyError
+или
+except KeyError as err:
+    raise KeyError(err)
+или
+except Exception as err:
+    raise err
+?
+
+A logger выше warning всегда только в main пишем?
+А уровня exception когда использовать правильно или
+вместо нее error надо?
+'''
+
+
 def check_tokens():
     """Global variable should musts exist and not be NONE."""
     required_variable = [
@@ -53,17 +70,15 @@ def check_tokens():
         'TELEGRAM_TOKEN',
         'PRACTICUM_TOKEN',
     ]
-    glob_var = globals()
-    try:
-        if not all(list(map(
-            lambda var: glob_var.get(var) and glob_var.get(var) is not None,
-            required_variable
-        )
-        )
-        ): raise NotExistVariableError('Not required variable')
-    except Exception as err:
-        logger.critical(err)
-        sys.exit('Force exit')
+    global_variable = globals()
+    phrase = 'Not required variable: {}'
+    for variable in required_variable:
+        if (
+            not global_variable.get(variable, False)
+            or global_variable[variable] is None
+        ):
+            logger.critical(phrase.format(variable))
+            sys.exit('Force exit')
 
 
 def send_message(bot, message):
@@ -71,21 +86,20 @@ def send_message(bot, message):
     try:
         logger.info(f'Bot send message: {message}')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-    except SendMessageError as err:
-        logger.exception(err)
-        sys.exit('Error in works Bot')
+    except TelegramError:
+        raise TelegramError
     else:
-        change_message(message)
         logger.debug('Successful send message')
 
 
-def timestamp(period=1):
-    """
-    Time period specified in days. Default one day.
+'''
+Если написать raise  в
+except requests.RequestException as error то тесты пишут :
 
-    86400 volume second in one day.
-    """
-    return int(time.time()) - 86400 * period
+AssertionError: Убедитесь, что в функции `get_api_answer`
+обрабатывается ситуация, когда при запросе к API возникает
+исключение `requests.RequestException`.
+'''
 
 
 def get_api_answer(timestamp):
@@ -100,8 +114,9 @@ def get_api_answer(timestamp):
         if response.status_code != EXPECTED_CODE:
             raise StatusCodeError('Status code different to expected')
         return response.json()
-    except requests.RequestException as error:
-        logger.error(error)
+    except requests.RequestException:
+        # raise requests.RequestException
+        pass
 
 
 def check_response(response):
@@ -110,78 +125,61 @@ def check_response(response):
         raise TypeError(
             f'Received: "{type(response)}". Expected: "dict"'
         )
-    if not response.get('homeworks'):
+    if not ('homeworks' in response):
         raise NotCorrectResponseError(
-            'Not homework for the last 24 hours!'
+            'Not keyname "homeworks" in response'
         )
     if not isinstance(response['homeworks'], list):
         raise TypeError(
             f'Received: {type(response["homeworks"])}. Expected: "dict"'
         )
-    if not response.get('current_date'):
-        ...
-
-
-'''
-Привет, не стал этот метод убирать, исходя из своих рассуждений,
-get_api_answer возвращает json, а parse_status требует конретную
-домашнюю работу, получается кто то должен взять на себя этап
-извлечения одного из другого. Верно я рассуждаю?
-
-Замечание на 106 строке, timestamp это current_date?
-И проверять нужно само наличие ключа или его значение
-(временные рамки например)?
-
-Замечание на 136, не понял про временное окно, и как мне использовать
-current_date из запроса. Благодаря функции timestamp() получается
-всегда смещении на 24 часа, значит мы получаем актуальную
-информацию по домашней работе за поледние сутки.
-
-Я реализовал пару методов и одну проверку, но оно
-ни в какую не хочет проходить тесты при отправке (хотя локально
-все хорошо) в коде это то, что под # находится. Решил отправить так,
-как есть, все равно скорее всего все не правильно )))
-'''
-
-
-def last_homework(response_dict):
-    """If the specified perion received several message, return last."""
-    try:
-        return response_dict.get('homeworks')[0]
-    except (KeyError, IndexError) as err:
-        raise err
+    if not ('current_date' in response):
+        raise NotCorrectResponseError(
+            'Not keyname "current_date" in response'
+        )
 
 
 def parse_status(homework):
     """Get status homework."""
-    try:
-        status = homework['status']
-        homework_name = homework['homework_name']
-        verdict = HOMEWORK_VERDICTS[status]
-        change_status(status)
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    except KeyError as err:
-        raise KeyError(err)
+    status = homework.get('status')
+    homework_name = homework.get('homework_name')
+    verdict = HOMEWORK_VERDICTS.get(status)
+    for value in [status, homework_name, verdict]:
+        if not value:
+            raise KeyError('Not keyword in homework')
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
     """Base logic Bot."""
     check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    timestamp = int(time.time())
+    message_storage = ''
+    status_storage = ''
     while True:
         try:
-            response = get_api_answer(timestamp())
+            response = get_api_answer(timestamp)
             check_response(response)
-            message = parse_status(last_homework(response))
-            # if check_status(response) or check_message(response):
-            #     send_message(bot, message)
-            send_message(bot, message)
+            if response.get('homeworks'):
+                homework = response.get('homeworks')[0]
+                message = parse_status(homework)
+                status = homework.get('status')
+                if status_storage != status:
+                    send_message(bot, message)
+                    status_storage = status
+        except TelegramError as err:
+            logger.critical(err)
+            sys.exit('Error in works Bot')
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
+            message_err = f'Сбой в работе программы: {error}'
             logger.error(error)
-            send_message(bot, message)
+            if message_storage != message_err:
+                send_message(bot, message_err)
+                message_storage = message_err
         finally:
             time.sleep(RETRY_PERIOD)
+            timestamp += RETRY_PERIOD
 
 
 if __name__ == '__main__':
