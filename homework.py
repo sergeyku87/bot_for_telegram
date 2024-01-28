@@ -7,10 +7,14 @@ import requests
 import telegram
 from dotenv import load_dotenv
 from exceptions import (
+    AuthorizationError,
+    BotError,
     NotCorrectResponseError,
-    StatusCodeError
+    RequestError,
+    SendRequestError,
+    StatusCodeError,
 )
-from telegram.error import TelegramError
+from telegram.error import BadRequest, Unauthorized
 
 load_dotenv()
 
@@ -18,6 +22,7 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
+LIMIM_ERRORS = 3
 EXPECTED_CODE = 200
 RETRY_PERIOD = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
@@ -37,30 +42,6 @@ formatter = logging.Formatter(
 )
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-
-
-'''
-Я правильно понял что в функциях который вызываются в
-других функциях, мы пишем try/except для отлова предрологаемых
-исключений, например KeyError, а в функциях типа main, мы пишем
-except Exception уже для отлова того, что не учли или для того же
-самого KeyError? Или много except и с каждым конретно решаем что
-делать?
-Пробросить исключение это так:
-except KeyError:
-    raise KeyError
-или
-except KeyError as err:
-    raise KeyError(err)
-или
-except Exception as err:
-    raise err
-?
-
-A logger выше warning всегда только в main пишем?
-А уровня exception когда использовать правильно или
-вместо нее error надо?
-'''
 
 
 def check_tokens():
@@ -84,27 +65,18 @@ def check_tokens():
 def send_message(bot, message):
     """Message for Telegram chat."""
     try:
-        logger.info(f'Bot send message: {message}')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-    except TelegramError:
-        raise TelegramError
+        logger.info(f'Bot send message: {message}')
+    except Unauthorized as err:
+        raise AuthorizationError('Bad TOKEN authorization') from err
+    except BadRequest as err:
+        raise SendRequestError('Bad Request') from err
     else:
         logger.debug('Successful send message')
 
 
-'''
-Если написать raise  в
-except requests.RequestException as error то тесты пишут :
-
-AssertionError: Убедитесь, что в функции `get_api_answer`
-обрабатывается ситуация, когда при запросе к API возникает
-исключение `requests.RequestException`.
-'''
-
-
 def get_api_answer(timestamp):
     """Request to YandexPracticum Homework."""
-    logger.info(f'Send request to YaHomwork API. {time.ctime(timestamp)}')
     try:
         response = requests.get(
             url=ENDPOINT,
@@ -113,40 +85,65 @@ def get_api_answer(timestamp):
         )
         if response.status_code != EXPECTED_CODE:
             raise StatusCodeError('Status code different to expected')
+        logger.info(
+            f'Send request to YaHomework API. Time: {time.ctime(timestamp)}'
+        )
         return response.json()
-    except requests.RequestException:
-        # raise requests.RequestException
-        pass
+    except requests.RequestException as err:
+        raise RequestError('Problem with Request') from err
+
+
+'''
+Пробовал добавить в check_response код ниже, но тесты ломаются.
+Даже если местами поменять, то что уже написано, тоже тесты ломаются
+
+   asdf = (
+        (response, dict),
+        (response['homeworks'], list),
+        (response['current_date'], int),
+    )
+    for a, b in asdf:
+        if not isinstance(a, b):
+            raise TypeError(
+                f'Received: "{type(a)}". Expected: "{b}"'
+            )
+'''
 
 
 def check_response(response):
     """Is correct answer to API YandexPracticum."""
+    important_keys = ['homeworks', 'current_date']
+
     if not isinstance(response, dict):
         raise TypeError(
             f'Received: "{type(response)}". Expected: "dict"'
         )
-    if not ('homeworks' in response):
-        raise NotCorrectResponseError(
-            'Not keyname "homeworks" in response'
-        )
+
+    for key in important_keys:
+        if not (key in response):
+            raise NotCorrectResponseError(
+                f'Not keyname "{key}" in response'
+            )
+
     if not isinstance(response['homeworks'], list):
         raise TypeError(
-            f'Received: {type(response["homeworks"])}. Expected: "dict"'
-        )
-    if not ('current_date' in response):
-        raise NotCorrectResponseError(
-            'Not keyname "current_date" in response'
+            f'Received: {type(response["homeworks"])}. Expected: "list"'
         )
 
 
 def parse_status(homework):
     """Get status homework."""
-    status = homework.get('status')
+    important_keys = ['status', 'homework_name']
     homework_name = homework.get('homework_name')
+    status = homework.get('status')
     verdict = HOMEWORK_VERDICTS.get(status)
-    for value in [status, homework_name, verdict]:
-        if not value:
-            raise KeyError('Not keyword in homework')
+
+    for key in important_keys:
+        if not (key in homework):
+            raise KeyError(f'Not keyname "{key}" in homework')
+    if not (status in HOMEWORK_VERDICTS):
+        raise NameError('Not correct status in homework')
+
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -156,21 +153,25 @@ def main():
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
     message_storage = ''
-    status_storage = ''
+    allowed_errors = 0
     while True:
         try:
             response = get_api_answer(timestamp)
             check_response(response)
-            if response.get('homeworks'):
-                homework = response.get('homeworks')[0]
+            homeworks = response.get('homeworks')
+            time_server = response.get('current_date', timestamp)
+            timestamp = time_server
+            if homeworks:
+                homework = homeworks[0]
                 message = parse_status(homework)
-                status = homework.get('status')
-                if status_storage != status:
+                if message_storage != message:
                     send_message(bot, message)
-                    status_storage = status
-        except TelegramError as err:
+                    message_storage = message
+        except BotError as err:
             logger.critical(err)
-            sys.exit('Error in works Bot')
+            if allowed_errors == LIMIM_ERRORS:
+                sys.exit('Error in works Bot')
+            allowed_errors += 1
         except Exception as error:
             message_err = f'Сбой в работе программы: {error}'
             logger.error(error)
@@ -179,7 +180,6 @@ def main():
                 message_storage = message_err
         finally:
             time.sleep(RETRY_PERIOD)
-            timestamp += RETRY_PERIOD
 
 
 if __name__ == '__main__':
