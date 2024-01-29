@@ -121,7 +121,7 @@ def check_response(response):
 
 def parse_status(homework):
     """Get status homework."""
-    important_keys = ['status', 'homework_name']
+    important_keys = ('status', 'homework_name')
     homework_name = homework.get('homework_name')
     status = homework.get('status')
     verdict = HOMEWORK_VERDICTS.get(status)
